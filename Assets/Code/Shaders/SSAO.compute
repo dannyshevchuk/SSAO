@@ -1,0 +1,113 @@
+﻿#pragma enable_d3d11_debug_symbols
+#include "UnityCG.cginc"
+
+#pragma kernel CSMain
+
+Texture2D<float4> RandomTextureSampler;
+
+Texture2D<float4> _CameraDepthNormalsTexture;
+Texture2D<float4> _CameraDepthTexture;
+
+Texture2D<float4> Src;
+RWTexture2D<float4> Result;
+
+float total_strength = 1.0;
+float base = 0.2;
+float area = 0.0075;
+float falloff = 0.000001;
+float radius = 0.0002;
+float bias = 0.025;
+
+bool debugMode = false;
+
+float4x4 projection;
+float4x4 g_matInvProjection;
+float4x4 viewMatrixInv;
+
+float ProjectionA, ProjectionB;
+
+float _width, _height;
+
+
+float3 samples[128];
+
+
+float3 VSPositionFromDepth(uint2 xy)
+{
+  float z = 1-Linear01Depth(_CameraDepthTexture[xy].r);
+
+  float x = xy.x / _width;
+  float y = xy.y / _height;
+  x = x * 2.0 - 1.0;
+  y = y * 2.0 - 1.0;
+
+  float4 vProjectedPos = float4(x, y, z, 1.0);
+  
+  // Transform by the inverse projection matrix
+  float4 vPositionVS = mul(g_matInvProjection, vProjectedPos);
+  
+  // Divide by w to get the view-space position
+  vPositionVS.xyz /= vPositionVS.w;
+
+  return  vPositionVS;
+}
+
+uint2 transformedTexcoords(float2 texcoords)
+{
+  uint2 result = uint2(
+    uint(texcoords.x*_width), uint(texcoords.y*_height)
+    );
+  return result;
+}
+
+
+float3 ssao(uint3 id)
+{
+  const int kernelSize = 128;
+   
+  // ------------------ Decoding depth and normal
+  float _tmp_depth;
+  float3 _tmp_normal;
+  DecodeDepthNormal(_CameraDepthNormalsTexture[id.xy], _tmp_depth, _tmp_normal);
+  //---------------------------------------------
+  
+  float3 fragPos = VSPositionFromDepth(id.xy);
+  float3 normal = _tmp_normal.rgb;
+  uint  noiseX = uint(id.x) % 4;
+  uint  noiseY = uint(id.y) % 4;
+  float3 randomVec = RandomTextureSampler[uint2(noiseX, noiseY)].xyz;
+
+  float3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+  float3 bitangent = cross(normal, tangent);
+  
+  float3x3 TBN = float3x3(tangent, bitangent, normal); //from tangent to view
+
+  float occlusion = 0.0;
+  for(int i = 0; i < kernelSize; i++)
+  {
+    // get sample position
+    float3 samplePos = mul(TBN, samples[i]); // from tangent to view-space
+    samplePos = fragPos + samplePos * radius;
+
+    float4 offset = float4(samplePos, 1.0);
+    offset      = mul(projection, offset);    // from view to clip-space
+    offset.xyz /= offset.w;               // perspective divide
+    offset.xyz  = offset.xyz * 0.5 + 0.5; // transform to range 0.0 - 1.0  
+
+    float sampleDepth = VSPositionFromDepth(transformedTexcoords(offset.xy)).z; 
+
+    float difference = sampleDepth - fragPos.z + bias;
+    occlusion += step(falloff, difference) * (1.0-smoothstep(falloff, area, difference));
+    
+  }
+  float occ = 1.0 - (occlusion / kernelSize);
+  float result = pow(occ, total_strength);
+  return float3(result, result, result);  
+}
+
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+  Result[id.xy] = float4(ssao(id), 1.0);
+}

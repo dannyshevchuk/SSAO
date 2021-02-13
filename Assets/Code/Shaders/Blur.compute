@@ -1,0 +1,55 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+Texture2D<float4> ssaoInput;
+Texture2D<float4> Src;
+
+float _width, _height;
+
+bool debug;
+
+int _blurKernelSize;
+float _blurTexelSizeMultiplier;
+float _blurResultDivider;
+
+uint2 transformedTexcoords(float2 texcoords)
+{
+  uint2 result = uint2(
+    uint(texcoords.x*_width), uint(texcoords.y*_height)
+    );
+  return result;
+}
+
+float blur(uint2 TexCoords)
+{
+    float2 texelSize = _blurTexelSizeMultiplier / float2(_width, _height);
+    float result = 0.0;
+    for (int x = -_blurKernelSize; x < _blurKernelSize; ++x) 
+    {
+        for (int y = -_blurKernelSize; y < _blurKernelSize; ++y) 
+        {
+            float2 offset = float2(float(x), float(y)) * texelSize;
+            result += ssaoInput[TexCoords + transformedTexcoords(offset)].r;
+        }
+    }
+    //return result / (4.0 * 4.0);
+    return result / _blurResultDivider;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if(!debug)
+    {
+        Result[id.xy] = Src[id.xy] * blur(id.xy);
+    }
+    else
+    {
+        Result[id.xy] = blur(id.xy);
+    }
+
+    //Result[id.xy] = ssaoInput[id.xy];
+}
