@@ -9,10 +9,8 @@ public class SSAOcpu : MonoBehaviour
     private Texture2D _ssaoNoise;
 
     private Camera _camera;
-    private RenderTexture _depthResultRenderTexture;
     private RenderTexture _ssaoResultRenderTexture;
     private RenderTexture _blurResultRenderTexture;
-    private RenderTexture _lightResultRenderTexture;
 
     [Header("SSAO Settings")]
     [SerializeField] float _total_strength = 1.0f;
@@ -28,8 +26,6 @@ public class SSAOcpu : MonoBehaviour
     [SerializeField] int _blurKernelSize = 2;
     [SerializeField] float _blurTexelSizeMultiplier = 1.0f;
     [SerializeField] float _blurResultDivider = 16.0f;
-
-    private Matrix4x4 _projection;
 
     private List<float> _samples;
 
